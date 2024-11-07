@@ -1491,6 +1491,9 @@ void ImDebugger::Frame(MIPSDebugInterface *mipsDebug, GPUDebugInterface *gpuDebu
 	case ImCmd::NONE:
 		break;
 	}
+	if (cfg_.luaConsoleOpen) {
+		luaConsole_.Draw(cfg_);
+	}
 }
 
 void ImDebugger::Snapshot(MIPSState *mips) {
