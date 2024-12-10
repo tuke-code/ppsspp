@@ -387,7 +387,7 @@ if(NOT MSVC)
 		# This one is very useful but has many false positives.
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-class-memaccess")
 	else()
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations -Wno-missing-braces")
 	endif()
 
 	if(ANDROID)
@@ -2717,6 +2717,11 @@ set(WindowsFiles
 	Windows/stdafx.cpp
 	Windows/stdafx.h
 )
+
+if(ANDROID AND ARM64)
+	# Support 16kb page size on Android
+	target_link_options(${CoreLibName} PRIVATE "-Wl,-z,max-page-size=16384")
+endif()
 
 list(APPEND LinkCommon ${CoreLibName} ${CMAKE_THREAD_LIBS_INIT})
 

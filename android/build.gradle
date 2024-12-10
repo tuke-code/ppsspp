@@ -51,7 +51,7 @@ android {
 
 	java {
 		toolchain {
-			languageVersion = JavaLanguageVersion.of(17)
+			// languageVersion = JavaLanguageVersion.of(17)
 		}
 	}
 	defaultConfig {
@@ -210,7 +210,8 @@ android {
 							'-DANDROID_ARM_NEON=TRUE',
 							'-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON',
 							'-DOPENXR=TRUE',
-							'-DANDROID_LEGACY=TRUE'
+							'-DANDROID_LEGACY=TRUE',
+							'-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
 				}
 			}
 			ndk {
