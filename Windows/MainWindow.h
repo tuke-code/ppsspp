@@ -73,7 +73,6 @@ namespace MainWindow
 	void Redraw();
 	HWND GetHWND();
 	HINSTANCE GetHInstance();
-	HWND GetDisplayHWND();
 	void ToggleFullscreen(HWND hWnd, bool goingFullscreen);
 	void Minimize();
 	void SendToggleFullscreen(bool fullscreen);  // To be used off-thread
