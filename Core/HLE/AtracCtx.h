@@ -199,8 +199,10 @@ public:
 		outputChannels_ = channels;
 	}
 
-	// Refactor?
-	int atracID_ = -1;
+	virtual void SetAtracID(int atracID) = 0;
+	virtual int GetAtracID() const = 0;
+
+	void EnsureContext(int atracID);
 
 	PSPPointer<SceAtracContext> context_{};
 
@@ -299,6 +301,13 @@ public:
 	u32 GetNextSamples() override;
 	void InitLowLevel(u32 paramsAddr, bool jointStereo) override;
 
+	void SetAtracID(int atracID) override {
+		atracID_ = atracID;
+	}
+	int GetAtracID() const override {
+		return atracID_;
+	}
+
 protected:
 	void AnalyzeReset();
 
@@ -315,6 +324,8 @@ private:
 	}
 	void ConsumeFrame();
 	void CalculateStreamInfo(u32 *readOffset);
+
+	int atracID_;
 
 	InputBuffer first_{};
 	InputBuffer second_{};  // only addr, size, fileoffset are used (incomplete)

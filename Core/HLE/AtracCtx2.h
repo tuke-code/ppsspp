@@ -4,9 +4,17 @@
 
 #include "Core/HLE/AtracCtx.h"
 
-
 class Atrac2 : public AtracBase {
 public:
+	void SetAtracID(int atracID) override {
+		EnsureContext(atracID);
+		context_->info.atracID = atracID;
+	}
+	int GetAtracID() const override {
+		_dbg_assert_(context_.IsValid());
+		return context_->info.atracID;
+	}
+
 	void DoState(PointerWrap &p) override;
 	void WriteContextToPSPMem() override;
 

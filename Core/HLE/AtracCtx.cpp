@@ -181,6 +181,21 @@ u8 *Atrac::BufferStart() {
 	return ignoreDataBuf_ ? Memory::GetPointerWrite(first_.addr) : dataBuf_;
 }
 
+void AtracBase::EnsureContext(int atracID) {
+	if (!context_.IsValid()) {
+		// allocate a new context_
+		u32 contextSize = sizeof(SceAtracContext);
+		// Note that Alloc can increase contextSize to the "grain" size.
+		context_ = kernelMemory.Alloc(contextSize, false, StringFromFormat("AtracCtx/%d", atracID).c_str());
+		if (context_.IsValid())
+			Memory::Memset(context_.ptr, 0, contextSize, "AtracContextClear");
+		context_->info.atracID = atracID;
+		WARN_LOG(Log::ME, "AtracBase: allocated new context", context_.ptr, atracID);
+	} else {
+		WARN_LOG(Log::ME, "AtracBase: _sceAtracGetContextAddress(%i)", context_.ptr, atracID);
+	}
+}
+
 void AtracBase::UpdateContextFromPSPMem() {
 	if (!context_.IsValid()) {
 		return;
@@ -249,6 +264,17 @@ int Atrac::Analyze(u32 addr, u32 size) {
 
 	AnalyzeReset();
 
+	int retval = AnalyzeAtracTrack(addr, size, &track_);
+	if (retval < 0) {
+		return retval;
+	}
+
+	first_._filesize_dontuse = track_.fileSize;
+	track_.DebugLog();
+	return 0;
+}
+
+int AnalyzeAtracTrack(u32 addr, u32 size, Track *track) {
 	// 72 is about the size of the minimum required data to even be valid.
 	if (size < 72) {
 		return SCE_ERROR_ATRAC_SIZE_TOO_SMALL;
@@ -265,13 +291,6 @@ int Atrac::Analyze(u32 addr, u32 size) {
 		return SCE_ERROR_ATRAC_UNKNOWN_FORMAT;
 	}
 
-	int retval = AnalyzeAtracTrack(addr, size, &track_);
-	first_._filesize_dontuse = track_.fileSize;
-	track_.DebugLog();
-	return retval;
-}
-
-int AnalyzeAtracTrack(u32 addr, u32 size, Track *track) {
 	struct RIFFFmtChunk {
 		u16_le fmtTag;
 		u16_le channels;

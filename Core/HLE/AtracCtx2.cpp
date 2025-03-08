@@ -9,40 +9,19 @@
 // Windows\x64\debug\PPSSPPHeadless.exe  --root pspautotests/tests/../ -o --compare --timeout=30 --graphics=software pspautotests/tests/audio/atrac/... --ignore pspautotests/tests/audio/atrac/second/resetting.prx --ignore pspautotests/tests/audio/atrac/second/replay.prx
 //
 // See the big comment in sceAtrac.cpp for an overview of the different modes of operation.
-//
-// Test cases
-//
-// Halfway buffer
-//
-// * None found yet
-//
-// All-data-loaded
-//
-// * MotoGP (menu music with specified loop). Simple repeated calls to sceAtracDecodeData
-// * Archer MacLean's Mercury (in-game, not menu)
-// * Crisis Core
-//
-// Streaming
-//
-// - Good ones (early)
-//   * Everybody's Golf 2 (0x2000 buffer size, loop from end)
-//   * Burnout Legends (no loop, 0x1800 buffer size)
-//   * Suicide Barbie
-// - Others
-//   * Bleach
-//   * God of War: Chains of Olympus
-//   * Ape Academy 2 (bufsize 8192)
-//   * Half Minute Hero (bufsize 65536)
-//   * Flatout (tricky! needs investigation)
 
 void Atrac2::DoState(PointerWrap &p) {
 	_assert_msg_(false, "Savestates not yet support with new Atrac implementation.\n\nTurn it off in Developer settings.\n\n");
 }
 
 void Atrac2::WriteContextToPSPMem() {
+	// This is not necessary since we use the context directly.
+
 	if (!context_.IsValid()) {
 		return;
 	}
+
+	/*
 	// context points into PSP memory.
 	SceAtracContext *context = context_;
 	context->info.buffer = 0; // bufferAddr_; // first_.addr;
@@ -74,7 +53,7 @@ void Atrac2::WriteContextToPSPMem() {
 
 	u8 *buf = (u8 *)context;
 	*(u32_le *)(buf + 0xfc) = atracID_;
-
+	*/
 	NotifyMemInfo(MemBlockFlags::WRITE, context_.ptr, sizeof(SceAtracContext), "AtracContext");
 }
 
@@ -120,7 +99,7 @@ int Atrac2::SetData(u32 buffer, u32 readSize, u32 bufferSize, int outputChannels
 	} else {
 		bufferState_ = ATRAC_STATUS_HALFWAY_BUFFER;
 	}
-	return hleLogDebug(Log::ME, successCode);
+	return successCode;
 }
 
 u32 Atrac2::SetSecondBuffer(u32 secondBuffer, u32 secondBufferSize) {

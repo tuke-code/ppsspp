@@ -168,7 +168,7 @@ static int createAtrac(AtracBase *atrac) {
 	for (int i = 0; i < (int)ARRAY_SIZE(atracContexts); ++i) {
 		if (atracContextTypes[i] == atrac->CodecType() && atracContexts[i] == 0) {
 			atracContexts[i] = atrac;
-			atrac->atracID_ = i;
+			atrac->SetAtracID(i);
 			return i;
 		}
 	}
@@ -384,7 +384,8 @@ static u32 sceAtracGetMaxSample(int atracID, u32 maxSamplesAddr) {
 	}
 
 	if (Memory::IsValidAddress(maxSamplesAddr)) {
-		Memory::WriteUnchecked_U32(atrac->GetTrack().SamplesPerFrame(), maxSamplesAddr);
+		int maxSamples = atrac->GetTrack().SamplesPerFrame();
+		Memory::WriteUnchecked_U32(maxSamples, maxSamplesAddr);
 		return hleLogDebug(Log::ME, 0);
 	} else {
 		return hleLogError(Log::ME, 0, "invalid address");
@@ -865,18 +866,7 @@ static u32 _sceAtracGetContextAddress(int atracID) {
 		return hleLogError(Log::ME, 0, "bad atrac id");
 	}
 
-	if (!atrac->context_.IsValid()) {
-		// allocate a new context_
-		u32 contextSize = sizeof(SceAtracContext);
-		// Note that Alloc can increase contextSize to the "grain" size.
-		atrac->context_ = kernelMemory.Alloc(contextSize, false, StringFromFormat("AtracCtx/%d", atracID).c_str());
-		if (atrac->context_.IsValid())
-			Memory::Memset(atrac->context_.ptr, 0, contextSize, "AtracContextClear");
-		WARN_LOG(Log::ME, "%08x=_sceAtracGetContextAddress(%i): allocated new context", atrac->context_.ptr, atracID);
-	} else {
-		WARN_LOG(Log::ME, "%08x=_sceAtracGetContextAddress(%i)", atrac->context_.ptr, atracID);
-	}
-
+	atrac->EnsureContext(atracID);
 	atrac->WriteContextToPSPMem();
 	return hleLogDebug(Log::ME, atrac->context_.ptr);
 }
