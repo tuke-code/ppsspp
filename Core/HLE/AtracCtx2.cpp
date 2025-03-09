@@ -38,6 +38,10 @@ int Atrac2::AnalyzeAA3(u32 addr, u32 size, u32 filesize) {
 int Atrac2::RemainingFrames() const {
 	const SceAtracIdInfo &info = context_->info;
 
+	if (info.state == 0) {
+		return SCE_ERROR_ATRAC_BAD_ATRACID;
+	}
+
 	if (info.state == ATRAC_STATUS_ALL_DATA_LOADED) {
 		// The buffer contains everything.
 		return PSP_ATRAC_ALLDATA_IS_ON_MEMORY;
@@ -88,12 +92,157 @@ u32 Atrac2::AddStreamDataSas(u32 bufPtr, u32 bytesToAdd) {
 }
 
 u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrittenSecondBuf) {
-	_dbg_assert_(false);
-	return 0;
+	// This was mostly copied straight from the old impl.
+
+	// Reuse the same calculation as before.
+	AtracResetBufferInfo bufferInfo;
+	GetResetBufferInfo(&bufferInfo, sample);
+
+	if ((u32)bytesWrittenFirstBuf < bufferInfo.first.minWriteBytes || (u32)bytesWrittenFirstBuf > bufferInfo.first.writableBytes) {
+		return hleLogError(Log::ME, SCE_ERROR_ATRAC_BAD_FIRST_RESET_SIZE, "first byte count not in valid range");
+	}
+	if ((u32)bytesWrittenSecondBuf < bufferInfo.second.minWriteBytes || (u32)bytesWrittenSecondBuf > bufferInfo.second.writableBytes) {
+		return hleLogError(Log::ME, SCE_ERROR_ATRAC_BAD_SECOND_RESET_SIZE, "second byte count not in valid range");
+	}
+
+	const SceAtracIdInfo &info = context_->info;
+	if (info.state == ATRAC_STATUS_ALL_DATA_LOADED) {
+		// Always adds zero bytes.
+	} else if (info.state == ATRAC_STATUS_HALFWAY_BUFFER) {
+		/*
+		// Okay, it's a valid number of bytes.  Let's set them up.
+		if (bytesWrittenFirstBuf != 0) {
+			first_.fileoffset += bytesWrittenFirstBuf;
+			first_.size += bytesWrittenFirstBuf;
+			first_.offset += bytesWrittenFirstBuf;
+		}
+
+		// Did we transition to a full buffer?
+		if (first_.size >= track_.fileSize) {
+			first_.size = track_.fileSize;
+			bufferState_ = ATRAC_STATUS_ALL_DATA_LOADED;
+		}
+		*/
+	} else {
+		if (bufferInfo.first.filePos > track_.fileSize) {
+			return hleDelayResult(hleLogError(Log::ME, SCE_ERROR_ATRAC_API_FAIL, "invalid file position"), "reset play pos", 200);
+		}
+
+		/*
+
+		// Move the offset to the specified position.
+		first_.fileoffset = bufferInfo.first.filePos;
+
+		if (bytesWrittenFirstBuf != 0) {
+			if (!ignoreDataBuf_) {
+				Memory::Memcpy(dataBuf_ + first_.fileoffset, first_.addr, bytesWrittenFirstBuf, "AtracResetPlayPosition");
+			}
+			first_.fileoffset += bytesWrittenFirstBuf;
+		}
+		first_.size = first_.fileoffset;
+		first_.offset = bytesWrittenFirstBuf;
+
+		bufferHeaderSize_ = 0;
+		bufferPos_ = track_.bytesPerFrame;
+		bufferValidBytes_ = bytesWrittenFirstBuf - bufferPos_;
+		*/
+	}
+
+	_dbg_assert_(track_.codecType == PSP_MODE_AT_3 || track_.codecType == PSP_MODE_AT_3_PLUS);
+	SeekToSample(sample);
+
+	WriteContextToPSPMem();
+	return hleNoLog(0);
+}
+
+void Atrac2::SeekToSample(int sample) {
+	// This was mostly copied straight from the old impl.
+
+	SceAtracIdInfo &info = context_->info;
+
+	// It seems like the PSP aligns the sample position to 0x800...?
+	const u32 offsetSamples = track_.FirstSampleOffsetFull();
+	const u32 unalignedSamples = (offsetSamples + sample) % track_.SamplesPerFrame();
+	int seekFrame = sample + offsetSamples - unalignedSamples;
+
+	if ((sample != info.decodePos || sample == 0) && decoder_ != nullptr) {
+		// Prefill the decode buffer with packets before the first sample offset.
+		decoder_->FlushBuffers();
+
+		int adjust = 0;
+		if (sample == 0) {
+			int offsetSamples = track_.FirstSampleOffsetFull();
+			adjust = -(int)(offsetSamples % track_.SamplesPerFrame());
+		}
+		const u32 off = track_.FileOffsetBySample(sample + adjust);
+		const u32 backfill = track_.bytesPerFrame * 2;
+		const u32 start = off - track_.dataByteOffset < backfill ? track_.dataByteOffset : off - backfill;
+
+		for (u32 pos = start; pos < off; pos += track_.bytesPerFrame) {
+			decoder_->Decode(Memory::GetPointer(info.buffer + pos), track_.bytesPerFrame, nullptr, 2, nullptr, nullptr);
+		}
+	}
+
+	// Probably more stuff that needs updating!
+	info.decodePos = sample;
 }
 
 void Atrac2::GetResetBufferInfo(AtracResetBufferInfo *bufferInfo, int sample) {
-	_dbg_assert_(false);
+	// This was mostly copied straight from the old impl.
+
+	const SceAtracIdInfo &info = context_->info;
+	if (info.state == ATRAC_STATUS_ALL_DATA_LOADED) {
+		bufferInfo->first.writePosPtr = info.buffer;
+		// Everything is loaded, so nothing needs to be read.
+		bufferInfo->first.writableBytes = 0;
+		bufferInfo->first.minWriteBytes = 0;
+		bufferInfo->first.filePos = 0;
+	} else if (info.state == ATRAC_STATUS_HALFWAY_BUFFER) {
+		// Here the message is: you need to read at least this many bytes to get to that position.
+		// This is because we're filling the buffer start to finish, not streaming.
+		bufferInfo->first.writePosPtr = info.buffer + info.curOff;
+		bufferInfo->first.writableBytes = track_.fileSize - info.curOff;
+		int minWriteBytes = track_.FileOffsetBySample(sample) - info.curOff;
+		if (minWriteBytes > 0) {
+			bufferInfo->first.minWriteBytes = minWriteBytes;
+		} else {
+			bufferInfo->first.minWriteBytes = 0;
+		}
+		bufferInfo->first.filePos = info.curOff;
+	} else {
+		// This is without the sample offset.  The file offset also includes the previous batch of samples?
+		int sampleFileOffset = track_.FileOffsetBySample(sample - track_.firstSampleOffset - track_.SamplesPerFrame());
+
+		// Update the writable bytes.  When streaming, this is just the number of bytes until the end.
+		const u32 bufSizeAligned = (info.bufferByte / track_.bytesPerFrame) * track_.bytesPerFrame;
+		const int needsMoreFrames = track_.FirstOffsetExtra();  // ?
+
+		bufferInfo->first.writePosPtr = info.buffer;
+		bufferInfo->first.writableBytes = std::min(track_.fileSize - sampleFileOffset, bufSizeAligned);
+		if (((sample + track_.firstSampleOffset) % (int)track_.SamplesPerFrame()) >= (int)track_.SamplesPerFrame() - needsMoreFrames) {
+			// Not clear why, but it seems it wants a bit extra in case the sample is late?
+			bufferInfo->first.minWriteBytes = track_.bytesPerFrame * 3;
+		} else {
+			bufferInfo->first.minWriteBytes = track_.bytesPerFrame * 2;
+		}
+		if ((u32)sample < (u32)track_.firstSampleOffset && sampleFileOffset != track_.dataByteOffset) {
+			sampleFileOffset -= track_.bytesPerFrame;
+		}
+		bufferInfo->first.filePos = sampleFileOffset;
+
+		if (info.secondBufferByte != 0) {
+			// TODO: We have a second buffer.  Within it, minWriteBytes should be zero.
+			// The filePos should be after the end of the second buffer (or zero.)
+			// We actually need to ensure we READ from the second buffer before implementing that.
+		}
+	}
+
+	// It seems like this is always the same as the first buffer's pos, weirdly.
+	bufferInfo->second.writePosPtr = info.buffer;
+	// Reset never needs a second buffer write, since the loop is in a fixed place.
+	bufferInfo->second.writableBytes = 0;
+	bufferInfo->second.minWriteBytes = 0;
+	bufferInfo->second.filePos = 0;
 }
 
 int Atrac2::SetLoopNum(int loopNum) {
@@ -203,8 +352,11 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 		return SCE_ERROR_ATRAC_ALL_DATA_DECODED;
 	}
 
-	// Write the samples to memory.
-	memcpy(outbuf, decodeTemp_, samplesToWrite * outputChannels_ * sizeof(int16_t));
+	// Write the decoded samples to memory.
+	// TODO: We can detect cases where we can safely just decode directly into output (full samplesToWrite, outbuf != nullptr)
+	if (outbuf) {
+		memcpy(outbuf, decodeTemp_, samplesToWrite * outputChannels_ * sizeof(int16_t));
+	}
 
 	info.streamDataByte -= info.sampleSize;
 	info.streamOff += info.sampleSize;
@@ -213,7 +365,7 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 
 	// If we reached the end of the buffer, move the cursor back to the start.
 	// SetData takes care of any split packet.
-	if (info.streamOff + info.sampleSize > info.bufferByte) {
+	if (AtracStatusIsStreaming(info.state) && info.streamOff + info.sampleSize > info.bufferByte) {
 		// Check that we're on the first lap. Should only happen on the first lap around.
 		_dbg_assert_(info.curOff - info.sampleSize < info.bufferByte);
 		INFO_LOG(Log::ME, "Hit the buffer wrap.");
