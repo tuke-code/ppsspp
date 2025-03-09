@@ -400,11 +400,12 @@ static u32 sceAtracGetNextDecodePosition(int atracID, u32 outposAddr) {
 	}
 
 	if (Memory::IsValidAddress(outposAddr)) {
-		if (atrac->CurrentSample() >= atrac->GetTrack().endSample) {
+		const int currentSample = atrac->CurrentSample();
+		if (currentSample >= atrac->GetTrack().endSample) {
 			Memory::WriteUnchecked_U32(0, outposAddr);
 			return hleLogDebug(Log::ME, SCE_ERROR_ATRAC_ALL_DATA_DECODED, "all data decoded - beyond endSample");
 		} else {
-			Memory::WriteUnchecked_U32(atrac->CurrentSample(), outposAddr);
+			Memory::WriteUnchecked_U32(currentSample, outposAddr);
 			return hleLogDebug(Log::ME, 0);
 		}
 	} else {

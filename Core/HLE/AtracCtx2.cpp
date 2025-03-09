@@ -167,6 +167,11 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 	INFO_LOG(Log::Audio, "asdf");
 }
 
+int Atrac2::CurrentSample() const {
+	const SceAtracIdInfo &info = context_->info;
+	return info.decodePos - track_.FirstSampleOffsetFull();
+}
+
 u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) {
 	SceAtracIdInfo &info = context_->info;
 

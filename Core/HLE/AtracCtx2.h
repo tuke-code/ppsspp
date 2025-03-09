@@ -29,7 +29,7 @@ public:
 	int Analyze(u32 addr, u32 size) override;
 	int AnalyzeAA3(u32 addr, u32 size, u32 filesize) override;
 
-	int CurrentSample() const override { return context_->info.decodePos; }
+	int CurrentSample() const override;
 	int RemainingFrames() const override;
 
 	void GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) override;
