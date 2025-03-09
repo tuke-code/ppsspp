@@ -14,11 +14,24 @@ void Atrac2::DoState(PointerWrap &p) {
 	_assert_msg_(false, "Savestates not yet support with new Atrac implementation.\n\nTurn it off in Developer settings.\n\n");
 }
 
+void Atrac2::AnalyzeReset() {
+	track_ = {};
+	track_.AnalyzeReset();
+	discardedSamples_ = 0;
+}
+
 int Atrac2::Analyze(u32 addr, u32 size) {
-	return AnalyzeAtracTrack(addr, size, &track_);
+	AnalyzeReset();
+	int retval = AnalyzeAtracTrack(addr, size, &track_);
+	if (retval < 0) {
+		return retval;
+	}
+	track_.DebugLog();
+	return 0;
 }
 
 int Atrac2::AnalyzeAA3(u32 addr, u32 size, u32 filesize) {
+	AnalyzeReset();
 	return AnalyzeAA3Track(addr, size, filesize, &track_);
 }
 
@@ -185,6 +198,9 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 		return SCE_ERROR_ATRAC_ALL_DATA_DECODED;
 	}
 
+	// Write the samples to memory.
+	memcpy(outbuf, decodeTemp_, samplesToWrite * outputChannels_ * sizeof(int16_t));
+
 	info.streamDataByte -= info.sampleSize;
 	info.streamOff += info.sampleSize;
 	info.curOff += info.sampleSize;
@@ -210,9 +226,12 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 }
 
 int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChannels, int successCode) {
+	SceAtracIdInfo &info = context_->info;
+
+	info.state = ATRAC_STATUS_NO_DATA;
+
 	if (track_.codecType != PSP_MODE_AT_3 && track_.codecType != PSP_MODE_AT_3_PLUS) {
 		// Shouldn't have gotten here, Analyze() checks this.
-		context_->info.state = ATRAC_STATUS_NO_DATA;
 		ERROR_LOG(Log::ME, "unexpected codec type %d in set data", track_.codecType);
 		return SCE_ERROR_ATRAC_UNKNOWN_FORMAT;
 	}
@@ -227,7 +246,6 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	// Copied from the old implementation, let's see where they are useful.
 	int firstExtra = track_.FirstOffsetExtra();
 
-	SceAtracIdInfo &info = context_->info;
 	// Copy parameters into struct.
 	info.buffer = bufferAddr;
 	info.bufferByte = bufferSize;
@@ -308,7 +326,7 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 }
 
 u32 Atrac2::SetSecondBuffer(u32 secondBuffer, u32 secondBufferSize) {
-	return 0;
+	return 0;	
 }
 
 void Atrac2::InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) {

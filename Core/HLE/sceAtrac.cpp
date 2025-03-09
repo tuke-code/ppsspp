@@ -616,7 +616,7 @@ static u32 sceAtracSetData(int atracID, u32 buffer, u32 bufferSize) {
 
 	if (atrac->GetTrack().codecType != atracContextTypes[atracID]) {
 		// TODO: Should this not change the buffer size?
-		return hleReportError(Log::ME, SCE_ERROR_ATRAC_WRONG_CODECTYPE, "atracID uses different codec type than data");
+		return hleLogError(Log::ME, SCE_ERROR_ATRAC_WRONG_CODECTYPE, "atracID uses different codec type than data");
 	}
 
 	return _AtracSetData(atracID, buffer, bufferSize, bufferSize, 2, false);

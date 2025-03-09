@@ -46,6 +46,7 @@ public:
 	int SetLoopNum(int loopNum) override;
 	void InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) override;
 private:
+	void AnalyzeReset();
 	// Just the current decoded frame, in order to be able to cut off the first part of it
 	// to write the initial partial frame.
 	// Does not need to be saved.
