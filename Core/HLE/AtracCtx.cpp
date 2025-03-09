@@ -189,6 +189,7 @@ void AtracBase::EnsureContext(int atracID) {
 		context_ = kernelMemory.Alloc(contextSize, false, StringFromFormat("AtracCtx/%d", atracID).c_str());
 		if (context_.IsValid())
 			Memory::Memset(context_.ptr, 0, contextSize, "AtracContextClear");
+		context_->info.state = ATRAC_STATUS_NO_DATA;
 		context_->info.atracID = atracID;
 		WARN_LOG(Log::ME, "AtracBase::EnsureContext(): allocated new context", context_.ptr, atracID);
 	}

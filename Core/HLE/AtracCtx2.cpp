@@ -17,6 +17,12 @@ void Atrac2::DoState(PointerWrap &p) {
 void Atrac2::AnalyzeReset() {
 	track_ = {};
 	track_.AnalyzeReset();
+
+	if (context_.IsValid()) {
+		SceAtracIdInfo &info = context_->info;
+		info = {};
+		info.state = ATRAC_STATUS_NO_DATA;
+	}
 	discardedSamples_ = 0;
 }
 
@@ -326,6 +332,7 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 
 	int samplesToWrite = track_.SamplesPerFrame();
 	if (discardedSamples_) {
+		_dbg_assert_(samplesToWrite >= discardedSamples_);
 		samplesToWrite -= discardedSamples_;
 		discardedSamples_ = 0;
 	}
@@ -384,8 +391,6 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 
 int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChannels, int successCode) {
 	SceAtracIdInfo &info = context_->info;
-
-	info.state = ATRAC_STATUS_NO_DATA;
 
 	if (track_.codecType != PSP_MODE_AT_3 && track_.codecType != PSP_MODE_AT_3_PLUS) {
 		// Shouldn't have gotten here, Analyze() checks this.
@@ -454,10 +459,10 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
 	}
 
-	// TODO: Decode the first dummy frame to the temp buffer. This initializes the decoder.
+	// TODO: Decode/discard any first dummy frames to the temp buffer. This initializes the decoder.
 	// It really does seem to be what's happening here, as evidenced by inBuf in the codec struct - it gets initialized.
 	// Alternatively, the dummy frame is just there to leave space for wrapping...
-	if (track_.FirstSampleOffsetFull() >= track_.SamplesPerFrame()) {
+	while (discardedSamples_ >= track_.SamplesPerFrame()) {
 		int bytesConsumed;
 		int outSamples;
 		if (!decoder_->Decode(Memory::GetPointer(info.buffer + info.streamOff), info.sampleSize, &bytesConsumed, track_.channels, decodeTemp_, &outSamples)) {
@@ -470,15 +475,16 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	}
 
 	// We need to handle wrapping the overshot partial packet at the end. Let's start by computing it.
-	int cutLen = (info.bufferByte - info.curOff) % info.sampleSize;
-	int cutRest = info.sampleSize - cutLen;
+	if (AtracStatusIsStreaming(info.state)) {
+		int cutLen = (info.bufferByte - info.curOff) % info.sampleSize;
+		int cutRest = info.sampleSize - cutLen;
 
-	// Then, let's copy it.
-	if (cutLen > 0) {
-		INFO_LOG(Log::ME, "Packets didn't fit evenly. Last packet got split into %d/%d (sum=%d). Copying to start of buffer.", cutLen, cutRest, cutLen, cutRest, info.sampleSize);
-		Memory::Memcpy(info.buffer, info.buffer + info.bufferByte - cutLen, cutLen);
+		// Then, let's copy it.
+		if (cutLen > 0) {
+			INFO_LOG(Log::ME, "Streaming: Packets didn't fit evenly. Last packet got split into %d/%d (sum=%d). Copying to start of buffer.", cutLen, cutRest, cutLen, cutRest, info.sampleSize);
+			Memory::Memcpy(info.buffer, info.buffer + info.bufferByte - cutLen, cutLen);
+		}
 	}
-
 	return successCode;
 }
 
