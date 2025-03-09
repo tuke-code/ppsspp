@@ -32,7 +32,7 @@ int Atrac2::RemainingFrames() const {
 
 	const bool isStreaming = (info.state & ATRAC_STATUS_STREAMED_MASK) != 0;
 
-	if (info.decodePos >= track_.endSample) {
+	if ((int)info.decodePos >= track_.endSample) {
 		if (info.state == ATRAC_STATUS_STREAMED_WITHOUT_LOOP) {
 			return PSP_ATRAC_NONLOOP_STREAM_DATA_IS_ON_MEMORY;
 		}
@@ -85,8 +85,8 @@ int Atrac2::SetLoopNum(int loopNum) {
 }
 
 u32 Atrac2::GetNextSamples() {
-	// This has to be possible to do in an easier way, from the existing state.
-
+	// TODO: This has to be possible to do in an easier way, from the context_->info state
+	// instead of reading the track.
 	int currentSample = CurrentSample();
 	// It seems like the PSP aligns the sample position to 0x800...?
 	u32 skipSamples = track_.FirstSampleOffsetFull();
@@ -95,6 +95,7 @@ u32 Atrac2::GetNextSamples() {
 	if (currentSample == 0 && firstSamples != 0) {
 		numSamples = firstSamples;
 	}
+
 	u32 unalignedSamples = (skipSamples + currentSample) % track_.SamplesPerFrame();
 	if (unalignedSamples != 0) {
 		// We're off alignment, possibly due to a loop.  Force it back on.
@@ -116,22 +117,22 @@ int Atrac2::AddStreamData(u32 bytesToAdd) {
 void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) {
 	SceAtracIdInfo &info = context_->info;
 	
-	*readOffset = info.bufferByte;
-	*writePtr = context_->codec.inBuf + info.curOff;
-
-	*writableBytes = 0;
+	*readOffset = info.curOff + info.streamDataByte;
+	*writePtr = info.buffer + info.streamOff;
+	// TODO: Circular buffering might make this trickier.
+	*writableBytes = info.bufferByte - info.streamDataByte - info.sampleSize;
 	// Probably we treat
+	INFO_LOG(Log::Audio, "asdf");
 }
 
 u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) {
 	SceAtracIdInfo &info = context_->info;
 
-	if (!decodeTemp_) {
-		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
-	}
+	u32 inAddr = info.buffer + info.streamOff;
+	context_->codec.inBuf = inAddr;  // just because.
 
 	/*
-	const uint8_t *indata = Memory::GetPointer(context_->codec.inBuf + info.curOff);
+	const uint8_t *indata = Memory::GetPointer(inAddr);
 	int bytesConsumed = 0;
 	int outSamples = 0;
 	if (!decoder_->Decode(indata, track_.bytesPerFrame, &bytesConsumed, outputChannels_, decodeTemp_, &outSamples)) {
@@ -144,11 +145,9 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 	*/
 
 	info.streamDataByte -= info.sampleSize;
+	info.streamOff += info.sampleSize;
 	info.curOff += info.sampleSize;
 	info.decodePos += track_.SamplesPerFrame();
-
-	// This one starts out being the same as curOff but sometimes gets reset??
-	info.unk48 += info.sampleSize;
 
 	*remains = RemainingFrames();
 	return 0;
@@ -170,15 +169,13 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	context_->codec.inBuf = bufferAddr;
 
 	// Copied from the old implementation, let's see where they are useful.
-	int bufOff = track_.dataByteOffset + track_.bytesPerFrame;
-	int skipSamples = track_.FirstSampleOffsetFull();
 	int firstExtra = track_.FirstOffsetExtra();
 
 	SceAtracIdInfo &info = context_->info;
 	// Copy parameters into struct.
 	info.buffer = bufferAddr;
 	info.bufferByte = bufferSize;
-	info.samplesPerChan = track_.FirstSampleOffsetFull();   // TODO: Where does 970 come from?
+	info.samplesPerChan = track_.FirstSampleOffsetFull();
 	info.endSample = track_.endSample + info.samplesPerChan;
 	if (track_.loopStartSample != 0xFFFFFFFF) {
 		info.loopStart = track_.loopStartSample;
@@ -189,10 +186,11 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	info.numChan = track_.channels;
 	info.numFrame = 0;
 	info.dataOff = track_.dataByteOffset;
-	info.curOff = 0x1D8;  // 472
-	info.unk48 = info.curOff;
+	info.curOff = track_.dataByteOffset + track_.bytesPerFrame;  // Possibly this is the result of pre-decoding the first frame already in SetData?
+	info.streamOff = info.curOff;
 	info.streamDataByte = readSize - info.curOff;
 	info.dataEnd = track_.fileSize;
+	info.decodePos = track_.FirstSampleOffsetFull();
 
 	if (readSize > track_.fileSize) {
 		WARN_LOG(Log::ME, "readSize %d > track_.fileSize", readSize, track_.fileSize);
@@ -219,6 +217,13 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	}
 
 	CreateDecoder();
+
+	if (!decodeTemp_) {
+		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
+	}
+
+	// TODO: Decode the first dummy frame to the temp buffer. This initializes the decoder.
+	// It really does seem to be what's happening here, as evidenced by inBuf in the codec struct - it gets initialized.
 
 	return successCode;
 }
