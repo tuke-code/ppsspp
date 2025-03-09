@@ -6,6 +6,9 @@
 
 class Atrac2 : public AtracBase {
 public:
+	~Atrac2() {
+		delete[] decodeTemp_;
+	}
 	void SetAtracID(int atracID) override {
 		EnsureContext(atracID);
 		context_->info.atracID = atracID;
@@ -15,13 +18,18 @@ public:
 		return context_->info.atracID;
 	}
 
+	AtracStatus BufferState() const {
+		return context_->info.state;
+	}
+
 	void DoState(PointerWrap &p) override;
-	void WriteContextToPSPMem() override;
+	void WriteContextToPSPMem() override {}
+	void UpdateContextFromPSPMem() override {}
 
 	int Analyze(u32 addr, u32 size) override;
 	int AnalyzeAA3(u32 addr, u32 size, u32 filesize) override;
 
-	int CurrentSample() const override { return currentSample_; }
+	int CurrentSample() const override { return context_->info.decodePos; }
 	int RemainingFrames() const override;
 
 	void GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) override;
@@ -35,8 +43,11 @@ public:
 
 	u32 DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) override;
 	u32 GetNextSamples() override;
-	void InitLowLevel(u32 paramsAddr, bool jointStereo) override;
-
+	int SetLoopNum(int loopNum) override;
+	void InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) override;
 private:
-	int currentSample_ = 0;
+	// Just the current decoded frame, in order to be able to cut off the first part of it
+	// to write the initial partial frame.
+	// Does not need to be saved.
+	int16_t *decodeTemp_ = nullptr;
 };

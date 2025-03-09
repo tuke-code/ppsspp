@@ -674,17 +674,13 @@ static u32 sceAtracSetLoopNum(int atracID, int loopNum) {
 	if (err != 0) {
 		return hleLogError(Log::ME, err);
 	}
-	if (atrac->GetTrack().loopinfo.size() == 0) {
-		if (loopNum == -1) {
-			// This is very common and not really a problem.
-			return hleLogDebug(Log::ME, SCE_ERROR_ATRAC_NO_LOOP_INFORMATION, "no loop information to write to!");
-		} else {
-			return hleLogError(Log::ME, SCE_ERROR_ATRAC_NO_LOOP_INFORMATION, "no loop information to write to!");
-		}
-	}
 
-	atrac->SetLoopNum(loopNum);
-	return hleLogDebug(Log::ME, 0);
+	int retval = atrac->SetLoopNum(loopNum);
+	if (retval < 0 && loopNum == -1) {
+		return hleLogDebug(Log::ME, retval);
+	} else {
+		return hleLogError(Log::ME, retval);
+	}
 }
 
 static int sceAtracReinit(int at3Count, int at3plusCount) {
@@ -918,7 +914,7 @@ static int sceAtracLowLevelInitDecoder(int atracID, u32 paramsAddr) {
 		}
 	}
 
-	atrac->InitLowLevel(paramsAddr, jointStereo);
+	atrac->InitLowLevel(paramsAddr, jointStereo, atracID);
 
 	const char *codecName = atrac->GetTrack().codecType == PSP_MODE_AT_3 ? "atrac3" : "atrac3+";
 	const char *channelName = atrac->GetTrack().channels == 1 ? "mono" : "stereo";

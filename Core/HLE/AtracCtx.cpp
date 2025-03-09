@@ -190,13 +190,11 @@ void AtracBase::EnsureContext(int atracID) {
 		if (context_.IsValid())
 			Memory::Memset(context_.ptr, 0, contextSize, "AtracContextClear");
 		context_->info.atracID = atracID;
-		WARN_LOG(Log::ME, "AtracBase: allocated new context", context_.ptr, atracID);
-	} else {
-		WARN_LOG(Log::ME, "AtracBase: _sceAtracGetContextAddress(%i)", context_.ptr, atracID);
+		WARN_LOG(Log::ME, "AtracBase::EnsureContext(): allocated new context", context_.ptr, atracID);
 	}
 }
 
-void AtracBase::UpdateContextFromPSPMem() {
+void Atrac::UpdateContextFromPSPMem() {
 	if (!context_.IsValid()) {
 		return;
 	}
@@ -1100,7 +1098,11 @@ u32 Atrac::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, i
 	return 0;
 }
 
-void AtracBase::SetLoopNum(int loopNum) {
+int Atrac::SetLoopNum(int loopNum) {
+	if (track_.loopinfo.size() == 0) {
+		return SCE_ERROR_ATRAC_NO_LOOP_INFORMATION;
+	}
+
 	// Spammed in MHU
 	loopNum_ = loopNum;
 	// Logic here looks wacky?
@@ -1112,6 +1114,7 @@ void AtracBase::SetLoopNum(int loopNum) {
 		track_.loopEndSample = track_.endSample + track_.FirstSampleOffsetFull();
 	}
 	WriteContextToPSPMem();
+	return 0;
 }
 
 u32 Atrac::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrittenSecondBuf) {
@@ -1174,7 +1177,7 @@ u32 Atrac::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrit
 	return hleNoLog(0);
 }
 
-void Atrac::InitLowLevel(u32 paramsAddr, bool jointStereo) {
+void Atrac::InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) {
 	track_.channels = Memory::Read_U32(paramsAddr);
 	outputChannels_ = Memory::Read_U32(paramsAddr + 4);
 	bufferMaxSize_ = Memory::Read_U32(paramsAddr + 8);

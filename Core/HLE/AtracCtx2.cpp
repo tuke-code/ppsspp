@@ -14,49 +14,6 @@ void Atrac2::DoState(PointerWrap &p) {
 	_assert_msg_(false, "Savestates not yet support with new Atrac implementation.\n\nTurn it off in Developer settings.\n\n");
 }
 
-void Atrac2::WriteContextToPSPMem() {
-	// This is not necessary since we use the context directly.
-
-	if (!context_.IsValid()) {
-		return;
-	}
-
-	/*
-	// context points into PSP memory.
-	SceAtracContext *context = context_;
-	context->info.buffer = 0; // bufferAddr_; // first_.addr;
-	context->info.bufferByte = 0; // bufferMaxSize_;
-	context->info.secondBuffer = 0;  // TODO
-	context->info.secondBufferByte = 0;  // TODO
-	context->info.codec = track_.codecType;
-	context->info.loopNum = loopNum_;
-	context->info.loopStart = track_.loopStartSample > 0 ? track_.loopStartSample : 0;
-	context->info.loopEnd = track_.loopEndSample > 0 ? track_.loopEndSample : 0;
-
-	// Note that we read in the state when loading the atrac object, so it's safe
-	// to update it back here all the time.  Some games, like Sol Trigger, change it.
-	// TODO: Should we just keep this in PSP ram then, or something?
-	context->info.state = bufferState_;
-	if (track_.firstSampleOffset != 0) {
-		context->info.samplesPerChan = track_.FirstSampleOffsetFull();
-	} else {
-		context->info.samplesPerChan = (track_.codecType == PSP_MODE_AT_3_PLUS ? ATRAC3PLUS_MAX_SAMPLES : ATRAC3_MAX_SAMPLES);
-	}
-	context->info.sampleSize = track_.bytesPerFrame;
-	context->info.numChan = track_.channels;
-	context->info.dataOff = track_.dataByteOffset;
-	context->info.endSample = track_.endSample + track_.FirstSampleOffsetFull();
-	context->info.dataEnd = track_.fileSize;
-	context->info.curOff = 0; // first_.fileoffset;
-	context->info.decodePos = track_.DecodePosBySample(currentSample_);
-	context->info.streamDataByte = 0; // first_.size - track_.dataOff;
-
-	u8 *buf = (u8 *)context;
-	*(u32_le *)(buf + 0xfc) = atracID_;
-	*/
-	NotifyMemInfo(MemBlockFlags::WRITE, context_.ptr, sizeof(SceAtracContext), "AtracContext");
-}
-
 int Atrac2::Analyze(u32 addr, u32 size) {
 	return AnalyzeAtracTrack(addr, size, &track_);
 }
@@ -66,39 +23,203 @@ int Atrac2::AnalyzeAA3(u32 addr, u32 size, u32 filesize) {
 }
 
 int Atrac2::RemainingFrames() const {
-	return 0;
+	const SceAtracIdInfo &info = context_->info;
+
+	if (info.state == ATRAC_STATUS_ALL_DATA_LOADED) {
+		// The buffer contains everything.
+		return PSP_ATRAC_ALLDATA_IS_ON_MEMORY;
+	}
+
+	const bool isStreaming = (info.state & ATRAC_STATUS_STREAMED_MASK) != 0;
+
+	if (info.decodePos >= track_.endSample) {
+		if (info.state == ATRAC_STATUS_STREAMED_WITHOUT_LOOP) {
+			return PSP_ATRAC_NONLOOP_STREAM_DATA_IS_ON_MEMORY;
+		}
+		int loopEndAdjusted = track_.loopEndSample - track_.FirstOffsetExtra() - track_.firstSampleOffset;
+		if (info.state == ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER && info.decodePos > loopEndAdjusted) {
+			// No longer looping in this case, outside the loop.
+			return PSP_ATRAC_NONLOOP_STREAM_DATA_IS_ON_MEMORY;
+		}
+		if (isStreaming && loopNum_ == 0) {
+			return PSP_ATRAC_LOOP_STREAM_DATA_IS_ON_MEMORY;
+		}
+		return info.streamDataByte / info.sampleSize;
+	}
+
+	if (isStreaming) {
+		// Since we're streaming, the remaining frames are what's valid in the buffer.
+		return info.streamDataByte / info.sampleSize;
+	}
+
+	// Fallback
+	return info.dataEnd / info.sampleSize;
 }
 
 u32 Atrac2::SecondBufferSize() const {
-	return 0;
-}
-
-void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) {
-
-}
-
-int Atrac2::AddStreamData(u32 bytesToAdd) {
-	return 0;
+	const SceAtracIdInfo &info = context_->info;
+	return info.secondBufferByte;
 }
 
 u32 Atrac2::AddStreamDataSas(u32 bufPtr, u32 bytesToAdd) {
+	_dbg_assert_(false);
 	return 0;
 }
 
 u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrittenSecondBuf) {
+	_dbg_assert_(false);
 	return 0;
 }
 
 void Atrac2::GetResetBufferInfo(AtracResetBufferInfo *bufferInfo, int sample) {
-
+	_dbg_assert_(false);
 }
 
-int Atrac2::SetData(u32 buffer, u32 readSize, u32 bufferSize, int outputChannels, int successCode) {
-	if (readSize == bufferSize) {
-		bufferState_ = ATRAC_STATUS_ALL_DATA_LOADED;
-	} else {
-		bufferState_ = ATRAC_STATUS_HALFWAY_BUFFER;
+int Atrac2::SetLoopNum(int loopNum) {
+	SceAtracIdInfo &info = context_->info;
+	if (info.loopEnd <= 0) {
+		return SCE_ERROR_ATRAC_NO_LOOP_INFORMATION;
 	}
+	info.loopNum = loopNum;
+	return 0;
+}
+
+u32 Atrac2::GetNextSamples() {
+	// This has to be possible to do in an easier way, from the existing state.
+
+	int currentSample = CurrentSample();
+	// It seems like the PSP aligns the sample position to 0x800...?
+	u32 skipSamples = track_.FirstSampleOffsetFull();
+	u32 firstSamples = (track_.SamplesPerFrame() - skipSamples) % track_.SamplesPerFrame();
+	u32 numSamples = track_.endSample + 1 - currentSample;
+	if (currentSample == 0 && firstSamples != 0) {
+		numSamples = firstSamples;
+	}
+	u32 unalignedSamples = (skipSamples + currentSample) % track_.SamplesPerFrame();
+	if (unalignedSamples != 0) {
+		// We're off alignment, possibly due to a loop.  Force it back on.
+		numSamples = track_.SamplesPerFrame() - unalignedSamples;
+	}
+	if (numSamples > track_.SamplesPerFrame())
+		numSamples = track_.SamplesPerFrame();
+	return numSamples;
+}
+
+int Atrac2::AddStreamData(u32 bytesToAdd) {
+	SceAtracIdInfo &info = context_->info;
+	// if (bytesToAdd > first_.writableBytes)
+	//	return SCE_ERROR_ATRAC_ADD_DATA_IS_TOO_BIG;
+	info.streamDataByte += bytesToAdd;
+	return 0;
+}
+
+void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) {
+	SceAtracIdInfo &info = context_->info;
+	
+	*readOffset = info.bufferByte;
+	*writePtr = context_->codec.inBuf + info.curOff;
+
+	*writableBytes = 0;
+	// Probably we treat
+}
+
+u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) {
+	SceAtracIdInfo &info = context_->info;
+
+	if (!decodeTemp_) {
+		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
+	}
+
+	/*
+	const uint8_t *indata = Memory::GetPointer(context_->codec.inBuf + info.curOff);
+	int bytesConsumed = 0;
+	int outSamples = 0;
+	if (!decoder_->Decode(indata, track_.bytesPerFrame, &bytesConsumed, outputChannels_, decodeTemp_, &outSamples)) {
+		// Decode failed.
+		*SamplesNum = 0;
+		*finish = 1;
+		// Is this the right error code? Needs testing.
+		return SCE_ERROR_ATRAC_ALL_DATA_DECODED;
+	}
+	*/
+
+	info.streamDataByte -= info.sampleSize;
+	info.curOff += info.sampleSize;
+	info.decodePos += track_.SamplesPerFrame();
+
+	// This one starts out being the same as curOff but sometimes gets reset??
+	info.unk48 += info.sampleSize;
+
+	*remains = RemainingFrames();
+	return 0;
+}
+
+int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChannels, int successCode) {
+	if (track_.codecType != PSP_MODE_AT_3 && track_.codecType != PSP_MODE_AT_3_PLUS) {
+		// Shouldn't have gotten here, Analyze() checks this.
+		context_->info.state = ATRAC_STATUS_NO_DATA;
+		ERROR_LOG(Log::ME, "unexpected codec type %d in set data", track_.codecType);
+		return SCE_ERROR_ATRAC_UNKNOWN_FORMAT;
+	}
+
+	if (outputChannels != track_.channels) {
+		// TODO: Figure out what this means
+		WARN_LOG(Log::ME, "Atrac::SetData: outputChannels %d doesn't match track_.channels %d", outputChannels, track_.channels);
+	}
+
+	context_->codec.inBuf = bufferAddr;
+
+	// Copied from the old implementation, let's see where they are useful.
+	int bufOff = track_.dataByteOffset + track_.bytesPerFrame;
+	int skipSamples = track_.FirstSampleOffsetFull();
+	int firstExtra = track_.FirstOffsetExtra();
+
+	SceAtracIdInfo &info = context_->info;
+	// Copy parameters into struct.
+	info.buffer = bufferAddr;
+	info.bufferByte = bufferSize;
+	info.samplesPerChan = track_.FirstSampleOffsetFull();   // TODO: Where does 970 come from?
+	info.endSample = track_.endSample + info.samplesPerChan;
+	if (track_.loopStartSample != 0xFFFFFFFF) {
+		info.loopStart = track_.loopStartSample;
+		info.loopEnd = track_.loopEndSample;
+	}
+	info.codec = track_.codecType;
+	info.sampleSize = track_.bytesPerFrame;
+	info.numChan = track_.channels;
+	info.numFrame = 0;
+	info.dataOff = track_.dataByteOffset;
+	info.curOff = 0x1D8;  // 472
+	info.unk48 = info.curOff;
+	info.streamDataByte = readSize - info.curOff;
+	info.dataEnd = track_.fileSize;
+
+	if (readSize > track_.fileSize) {
+		WARN_LOG(Log::ME, "readSize %d > track_.fileSize", readSize, track_.fileSize);
+		readSize = track_.fileSize;
+	}
+
+	if (bufferSize >= track_.fileSize) {
+		// Buffer is big enough to fit the whole track.
+		if (readSize < bufferSize) {
+			info.state = ATRAC_STATUS_HALFWAY_BUFFER;
+		} else {
+			info.state = ATRAC_STATUS_ALL_DATA_LOADED;
+		}
+	} else {
+		// Streaming cases with various looping types.
+		if (track_.loopEndSample <= 0) {
+			// There's no looping, but we need to stream the data in our buffer.
+			info.state = ATRAC_STATUS_STREAMED_WITHOUT_LOOP;
+		} else if (track_.loopEndSample == track_.endSample + track_.FirstSampleOffsetFull()) {
+			info.state = ATRAC_STATUS_STREAMED_LOOP_FROM_END;
+		} else {
+			info.state = ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER;
+		}
+	}
+
+	CreateDecoder();
+
 	return successCode;
 }
 
@@ -106,16 +227,7 @@ u32 Atrac2::SetSecondBuffer(u32 secondBuffer, u32 secondBufferSize) {
 	return 0;
 }
 
-u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) {
-
-	return 0;
-}
-
-u32 Atrac2::GetNextSamples() {
-	return 0;
-}
-
-void Atrac2::InitLowLevel(u32 paramsAddr, bool jointStereo) {
+void Atrac2::InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) {
 	track_.AnalyzeReset();
 	track_.channels = Memory::Read_U32(paramsAddr);
 	outputChannels_ = Memory::Read_U32(paramsAddr + 4);
@@ -130,8 +242,9 @@ void Atrac2::InitLowLevel(u32 paramsAddr, bool jointStereo) {
 		track_.jointStereo = false;
 	}
 	track_.dataByteOffset = 0;
-	bufferState_ = ATRAC_STATUS_LOW_LEVEL;
-	currentSample_ = 0;
+
+	EnsureContext(atracID);
+	context_->info.decodePos = 0;
+	context_->info.state = ATRAC_STATUS_LOW_LEVEL;
 	CreateDecoder();
-	WriteContextToPSPMem();
 }
