@@ -331,16 +331,14 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 			const int firstPart = RoundDownToMultiple(distanceToEnd, info.sampleSize);
 			const int secondPart = info.streamDataByte - firstPart;
 			*writePtr = info.buffer + secondPart;
-
 			// OK, now to compute how much space we have.
 			_dbg_assert_(secondPart <= info.streamOff);
 			const int spaceLeft = info.streamOff - secondPart;
 			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
 		} else {
-			const int spaceLeftFull = info.bufferByte - writePos;
-			// Now we need to find our frame alignment, then round down to the closest multiple.
-			// TODO: This doesn't work yet.
-			const int spaceLeft = RoundDownToMultiple(spaceLeftFull, info.sampleSize);
+			// We always start aligned at the start of the buffer. So, when computing the space left,
+			// we just shrink the buffer so it's an even number of frames, then compute the free space.
+			const int spaceLeft = RoundDownToMultiple(info.bufferByte, info.sampleSize) - writePos;
 			*writePtr = info.buffer + writePos;
 			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
 		}
@@ -402,11 +400,10 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 	info.decodePos += samplesToWrite;
 
 	// If we reached the end of the buffer, move the cursor back to the start.
-	// SetData takes care of any split packet.
+	// SetData takes care of any split packet on the first lap (On other laps, no split packets
+	// happen).
 	if (AtracStatusIsStreaming(info.state) && info.streamOff + info.sampleSize > info.bufferByte) {
-		// Check that we're on the first lap. Should only happen on the first lap around.
-		_dbg_assert_(info.curOff - info.sampleSize < info.bufferByte);
-		INFO_LOG(Log::ME, "Hit the buffer wrap.");
+		INFO_LOG(Log::ME, "Hit the stream buffer wrap point (decoding).");
 		info.streamOff = 0;
 	}
 
