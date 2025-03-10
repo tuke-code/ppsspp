@@ -278,8 +278,12 @@ int Atrac2::AddStreamData(u32 bytesToAdd) {
 	return 0;
 }
 
+int RoundDownToMultiple(int x, int n) {
+	return (x % n == 0) ? x : x - (x % n) - (n * (x < 0));
+}
+
 void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOffset) {
-	SceAtracIdInfo &info = context_->info;
+	const SceAtracIdInfo &info = context_->info;
 
 	*writePtr = info.buffer;
 	switch (info.state) {
@@ -300,12 +304,11 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 		// TODO: Take care of looping.
 		// Compute some helper variables.
 		int fileOffset = (int)info.curOff + (int)info.streamDataByte;
-		int bytesLeft = (int)info.dataEnd - fileOffset;
-		int bufferSpace = (int)info.bufferByte - (int)info.streamDataByte;
+		int bytesLeftInFile = (int)info.dataEnd - fileOffset;
 
-		_dbg_assert_(bytesLeft >= 0);
+		_dbg_assert_(bytesLeftInFile >= 0);
 
-		if (bytesLeft == 0) {
+		if (bytesLeftInFile == 0) {
 			// We've got all the data up to the end buffered, no more streaming is needed.
 			// Signalling this by setting everything to zero.
 			*writePtr = info.buffer;
@@ -314,16 +317,34 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 			return;
 		}
 
-		// Clamp to both available space in the buffer, and end-of-file.
-		if (info.curOff < info.bufferByte) {
-			// If on the first lap, we need some special handling to handle the cut packet.
-			int cutLen = (info.bufferByte - info.curOff) % info.sampleSize;
-			*writePtr = info.buffer + cutLen;
-			*bytesToRead = std::min(bytesLeft, bufferSpace - cutLen);
+		// Last allowed offset where a packet can start.
+		const int lastPacketStart = info.bufferByte - info.sampleSize;  // Last possible place in the buffer to put the next packet
+
+		// writePos is where the next write should be done in order to append to the circular buffer.
+		// First frame after SetData, this will be equal to the buffer size, and the partial packet at the end
+		// will actually be located at the start of the buffer (see the end of SetData for how it gets moved).
+		const int writePos = info.streamOff + info.streamDataByte;
+		if (writePos > lastPacketStart) {
+			// The buffered data wraps around. This also applies at the first frame after SetData.
+			const int distanceToEnd = info.bufferByte - info.streamOff;
+			// Round it down to even packets.
+			const int firstPart = RoundDownToMultiple(distanceToEnd, info.sampleSize);
+			const int secondPart = info.streamDataByte - firstPart;
+			*writePtr = info.buffer + secondPart;
+
+			// OK, now to compute how much space we have.
+			_dbg_assert_(secondPart <= info.streamOff);
+			const int spaceLeft = info.streamOff - secondPart;
+			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
 		} else {
-			*writePtr = info.buffer + info.dataOff;
-			*bytesToRead = std::min(bytesLeft, bufferSpace);
+			const int spaceLeftFull = info.bufferByte - writePos;
+			// Now we need to find our frame alignment, then round down to the closest multiple.
+			// TODO: This doesn't work yet.
+			const int spaceLeft = RoundDownToMultiple(spaceLeftFull, info.sampleSize);
+			*writePtr = info.buffer + writePos;
+			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
 		}
+
 		*readFileOffset = fileOffset;
 		break;
 	}
@@ -488,8 +509,9 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 
 	// We need to handle wrapping the overshot partial packet at the end. Let's start by computing it.
 	if (AtracStatusIsStreaming(info.state)) {
-		int cutLen = (info.bufferByte - info.curOff) % info.sampleSize;
-		int cutRest = info.sampleSize - cutLen;
+		// curOff also works (instead of streamOff) of course since it's also packet aligned, unlike the buffer size.
+		const int cutLen = (info.bufferByte - info.streamOff) % info.sampleSize;
+		const int cutRest = info.sampleSize - cutLen;
 
 		// Then, let's copy it.
 		if (cutLen > 0) {
