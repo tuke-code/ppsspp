@@ -48,6 +48,8 @@ public:
 
 	bool IsNewAtracImpl() const override { return true; }
 
+	u32 GetInternalCodecError() const override;
+
 private:
 	void AnalyzeReset();
 	void SeekToSample(int sample);

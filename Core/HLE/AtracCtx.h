@@ -202,6 +202,8 @@ public:
 	virtual void SetAtracID(int atracID) = 0;
 	virtual int GetAtracID() const = 0;
 
+	virtual u32 GetInternalCodecError() const { return 0; }
+
 	void EnsureContext(int atracID);
 
 	PSPPointer<SceAtracContext> context_{};
