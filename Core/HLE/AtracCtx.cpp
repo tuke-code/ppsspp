@@ -181,6 +181,10 @@ u8 *Atrac::BufferStart() {
 	return ignoreDataBuf_ ? Memory::GetPointerWrite(first_.addr) : dataBuf_;
 }
 
+AtracBase::~AtracBase() {
+	delete decoder_;
+}
+
 void AtracBase::EnsureContext(int atracID) {
 	if (!context_.IsValid()) {
 		// allocate a new context_
@@ -202,8 +206,7 @@ void Atrac::UpdateContextFromPSPMem() {
 
 	// Read in any changes from the game to the context.
 	// TODO: Might be better to just always track in RAM.
-	// TODO: It's possible that there are more changes we should read. Who knows,
-	// problem games like FlatOut might poke stuff into the context?
+	// Note: Atrac2 uses the context structure directly for (almost) all state.
 	bufferState_ = context_->info.state;
 	// This value is actually abused by games to store the SAS voice number.
 	loopNum_ = context_->info.loopNum;
