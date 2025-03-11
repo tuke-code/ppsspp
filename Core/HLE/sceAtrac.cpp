@@ -355,14 +355,14 @@ static u32 sceAtracGetLoopStatus(int atracID, u32 loopNumAddr, u32 statusAddr) {
 		return hleLogError(Log::ME, err);
 	}
 
-	if (Memory::IsValidAddress(loopNumAddr))
+	if (Memory::IsValidAddress(loopNumAddr)) {
 		Memory::WriteUnchecked_U32(atrac->LoopNum(), loopNumAddr);
-	// return audio's loopinfo in at3 file
+	}
+
+	// return audio's loopinfo in at3 file - actually this doesn't seem right, it changes status after reaching the end?
 	if (Memory::IsValidAddress(statusAddr)) {
-		if (atrac->GetTrack().loopinfo.size() > 0)
-			Memory::WriteUnchecked_U32(1, statusAddr);
-		else
-			Memory::WriteUnchecked_U32(0, statusAddr);
+		const int status = atrac->LoopStatus();
+		Memory::WriteUnchecked_U32(status, statusAddr);
 		return hleLogDebug(Log::ME, 0);
 	} else {
 		return hleLogError(Log::ME, 0, "invalid address");
@@ -375,13 +375,16 @@ static u32 sceAtracGetInternalErrorInfo(int atracID, u32 errorAddr) {
 	if (err != 0) {
 		return hleLogError(Log::ME, err);
 	}
-	u32 errorCode = atrac->GetInternalCodecError();
-	if (Memory::IsValidAddress(errorAddr))
+
+	const u32 errorCode = atrac->GetInternalCodecError();
+	if (Memory::IsValidAddress(errorAddr)) {
 		Memory::WriteUnchecked_U32(errorCode, errorAddr);
+	}
+
 	if (errorCode) {
-		return hleLogError(Log::ME, 0, "code: %08x", errorCode);
+		return hleLogWarning(Log::ME, 0, "code: %08x", errorCode);
 	} else {
-		return hleLogInfo(Log::ME, 0);
+		return hleLogDebug(Log::ME, 0);
 	}
 }
 
@@ -685,10 +688,10 @@ static u32 sceAtracSetLoopNum(int atracID, int loopNum) {
 	}
 
 	int retval = atrac->SetLoopNum(loopNum);
-	if (retval < 0 && loopNum == -1) {
+	if (retval < 0 && (loopNum == -1 || loopNum == 0x7fffffff)) {
 		return hleLogDebug(Log::ME, retval);
 	} else {
-		return hleLogError(Log::ME, retval);
+		return hleLogDebugOrError(Log::ME, retval);
 	}
 }
 

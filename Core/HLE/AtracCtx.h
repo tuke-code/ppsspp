@@ -210,9 +210,9 @@ public:
 
 	virtual AtracStatus BufferState() const = 0;
 
-	int LoopNum() const {
-		return loopNum_;
-	}
+	virtual int LoopNum() const = 0;
+	virtual int LoopStatus() const = 0;
+
 	u32 CodecType() const {
 		return track_.codecType;
 	}
@@ -251,7 +251,6 @@ public:
 protected:
 	Track track_{};
 	u16 outputChannels_ = 2;
-	int loopNum_ = 0;
 
 	// TODO: Save the internal state of this, now technically possible.
 	AudioDecoder *decoder_ = nullptr;
@@ -291,6 +290,10 @@ public:
 	u32 SecondBufferSize() const override {
 		return second_.size;
 	}
+	int LoopStatus() const override {
+		// This doesn't match tests.
+		return track_.loopinfo.size() > 0 ? 1 : 0;
+	}
 
 	// Ask where in memory new data should be written.
 	void GetStreamDataInfo(u32 *writePtr, u32 *writableBytes, u32 *readOffset) override;
@@ -307,6 +310,8 @@ public:
 	int SetLoopNum(int loopNum) override;
 	void InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) override;
 	void UpdateContextFromPSPMem() override;
+
+	int LoopNum() const override { return loopNum_; }
 
 	void SetAtracID(int atracID) override {
 		atracID_ = atracID;
@@ -344,6 +349,7 @@ private:
 	int currentSample_ = 0;
 	u32 decodePos_ = 0;
 	u32 bufferMaxSize_ = 0;
+	int loopNum_ = 0;
 
 	// Used to track streaming.
 	u32 bufferPos_ = 0;

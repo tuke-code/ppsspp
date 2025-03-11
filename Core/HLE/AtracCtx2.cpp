@@ -105,7 +105,7 @@ int Atrac2::RemainingFrames() const {
 			// No longer looping in this case, outside the loop.
 			return PSP_ATRAC_NONLOOP_STREAM_DATA_IS_ON_MEMORY;
 		}
-		if (loopNum_ == 0) {
+		if (info.loopNum == 0) {
 			return PSP_ATRAC_LOOP_STREAM_DATA_IS_ON_MEMORY;
 		}
 		return info.streamDataByte / info.sampleSize;
@@ -138,51 +138,25 @@ u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWri
 		return hleLogError(Log::ME, SCE_ERROR_ATRAC_BAD_SECOND_RESET_SIZE, "second byte count not in valid range");
 	}
 
-	const SceAtracIdInfo &info = context_->info;
+	SceAtracIdInfo &info = context_->info;
 	if (info.state == ATRAC_STATUS_ALL_DATA_LOADED) {
 		// Always adds zero bytes.
 	} else if (info.state == ATRAC_STATUS_HALFWAY_BUFFER) {
-		/*
-		// Okay, it's a valid number of bytes.  Let's set them up.
-		if (bytesWrittenFirstBuf != 0) {
-			first_.fileoffset += bytesWrittenFirstBuf;
-			first_.size += bytesWrittenFirstBuf;
-			first_.offset += bytesWrittenFirstBuf;
+		// Just reinitialize the context at the start.
+		_dbg_assert_(info.dataOff + info.streamDataByte == bufferInfo.first.filePos);
+		int readSize = info.dataOff + info.streamDataByte + bytesWrittenFirstBuf;
+		InitContext(0, info.buffer, readSize, info.bufferByte);
+		if (readSize == info.dataEnd) {
+			// Now, it's possible we'll transition to a full buffer here, if all the bytes were written. Let's do it.
+			info.state = ATRAC_STATUS_ALL_DATA_LOADED;
 		}
-
-		// Did we transition to a full buffer?
-		if (first_.size >= track_.fileSize) {
-			first_.size = track_.fileSize;
-			bufferState_ = ATRAC_STATUS_ALL_DATA_LOADED;
-		}
-		*/
 	} else {
 		if (bufferInfo.first.filePos > track_.fileSize) {
 			return hleDelayResult(hleLogError(Log::ME, SCE_ERROR_ATRAC_API_FAIL, "invalid file position"), "reset play pos", 200);
 		}
 
-		/*
-
-		// Move the offset to the specified position.
-		first_.fileoffset = bufferInfo.first.filePos;
-
-		if (bytesWrittenFirstBuf != 0) {
-			if (!ignoreDataBuf_) {
-				Memory::Memcpy(dataBuf_ + first_.fileoffset, first_.addr, bytesWrittenFirstBuf, "AtracResetPlayPosition");
-			}
-			first_.fileoffset += bytesWrittenFirstBuf;
-		}
-		first_.size = first_.fileoffset;
-		first_.offset = bytesWrittenFirstBuf;
-
-		bufferHeaderSize_ = 0;
-		bufferPos_ = track_.bytesPerFrame;
-		bufferValidBytes_ = bytesWrittenFirstBuf - bufferPos_;
-		*/
+		InitContext((bufferInfo.first.writePosPtr - info.buffer) + info.dataOff, info.buffer, bytesWrittenFirstBuf, info.bufferByte);
 	}
-
-	// _dbg_assert_(track_.codecType == PSP_MODE_AT_3 || track_.codecType == PSP_MODE_AT_3_PLUS);
-	// SeekToSample(sample);
 
 	return hleNoLog(0);
 }
@@ -212,6 +186,7 @@ void Atrac2::SeekToSample(int sample) {
 
 		for (u32 pos = start; pos < off; pos += track_.bytesPerFrame) {
 			decoder_->Decode(Memory::GetPointer(info.buffer + pos), track_.bytesPerFrame, nullptr, 2, nullptr, nullptr);
+			_dbg_assert_(decodeTemp_[track_.SamplesPerFrame() * track_.channels] == 1337);  // Sentinel
 		}
 	}
 
@@ -279,6 +254,15 @@ int Atrac2::SetLoopNum(int loopNum) {
 	return 0;
 }
 
+int Atrac2::LoopNum() const {
+	return context_->info.loopNum;
+}
+
+int Atrac2::LoopStatus() const {
+	// ????
+	return context_->info.loopEnd > 0;
+}
+
 u32 Atrac2::GetNextSamples() {
 	SceAtracIdInfo &info = context_->info;
 	// TODO: Handle end-of-track short block.
@@ -332,6 +316,7 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 			*readFileOffset = 0;
 			return;
 		}
+
 		// Just ask for the rest of the data. The game can supply as much of it as it wants at a time.
 		*writePtr = info.buffer + fileOffset;
 		*readFileOffset = fileOffset;
@@ -449,6 +434,7 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 	context_->codec.inBuf = inAddr;  // just because.
 	int bytesConsumed = 0;
 	int outSamples = 0;
+	_dbg_assert_(decodeTemp_[track_.SamplesPerFrame() * track_.channels] == 1337);  // Sentinel
 	if (!decoder_->Decode(Memory::GetPointer(inAddr), track_.bytesPerFrame, &bytesConsumed, outputChannels_, decodeTemp_, &outSamples)) {
 		// Decode failed.
 		*SamplesNum = 0;
@@ -456,10 +442,15 @@ u32 Atrac2::DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, 
 		context_->codec.err = 0x20b;  // checked on hardware for 0xFF corruption. it's possible that there are more codes.
 		return SCE_ERROR_ATRAC_API_FAIL;  // tested.
 	}
+	if (bytesConsumed != info.sampleSize) {
+		WARN_LOG(Log::ME, "bytesConsumed mismatch: %d vs %d", bytesConsumed, info.sampleSize);
+	}
+	_dbg_assert_(decodeTemp_[track_.SamplesPerFrame() * track_.channels] == 1337);  // Sentinel
 
 	// Write the decoded samples to memory.
 	// TODO: We can detect cases where we can safely just decode directly into output (full samplesToWrite, outbuf != nullptr)
 	if (outbuf) {
+		_dbg_assert_(samplesToWrite <= track_.SamplesPerFrame());
 		memcpy(outbuf, decodeTemp_, samplesToWrite * outputChannels_ * sizeof(int16_t));
 	}
 
@@ -507,7 +498,9 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	CreateDecoder();
 
 	if (!decodeTemp_) {
-		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
+		_dbg_assert_(track_.channels <= 2);
+		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels + 1];
+		decodeTemp_[track_.SamplesPerFrame() * track_.channels] = 1337;  // Sentinel
 	}
 
 	context_->codec.inBuf = bufferAddr;
@@ -536,8 +529,7 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 		}
 	}
 
-	// Copied from the old implementation, let's see where they are useful.
-	int firstExtra = track_.FirstOffsetExtra();
+	INFO_LOG(Log::ME, "Atrac streaming mode setup: %s", AtracStatusToString(info.state));
 
 	InitContext(0, bufferAddr, readSize, bufferSize);
 	return successCode;
@@ -560,8 +552,8 @@ void Atrac2::InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSiz
 	info.numFrame = 0;
 	info.dataOff = track_.dataByteOffset;
 	info.curOff = track_.dataByteOffset;  // Note: This and streamOff get incremented by bytesPerFrame before the return from this function by skipping frames.
-	info.streamOff = track_.dataByteOffset;
-	info.streamDataByte = readSize - track_.dataByteOffset;
+	info.streamOff = track_.dataByteOffset - offset;
+	info.streamDataByte = readSize - info.streamOff;
 	info.dataEnd = track_.fileSize;
 	info.decodePos = track_.FirstSampleOffsetFull();
 	discardedSamples_ = track_.FirstSampleOffsetFull();
@@ -575,6 +567,11 @@ void Atrac2::InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSiz
 		if (!decoder_->Decode(Memory::GetPointer(info.buffer + info.streamOff), info.sampleSize, &bytesConsumed, track_.channels, decodeTemp_, &outSamples)) {
 			ERROR_LOG(Log::ME, "Error decoding the 'dummy' buffer at offset %d in the buffer", info.streamOff);
 		}
+		if (bytesConsumed != info.sampleSize) {
+			WARN_LOG(Log::ME, "bytesConsumed mismatch: %d vs %d", bytesConsumed, info.sampleSize);
+		}
+		_dbg_assert_(decodeTemp_[track_.SamplesPerFrame() * track_.channels] == 1337);  // Sentinel
+
 		info.curOff += track_.bytesPerFrame;
 		if (AtracStatusIsStreaming(info.state)) {
 			info.streamOff += track_.bytesPerFrame;

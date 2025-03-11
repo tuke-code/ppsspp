@@ -49,6 +49,8 @@ public:
 	bool IsNewAtracImpl() const override { return true; }
 
 	u32 GetInternalCodecError() const override;
+	int LoopNum() const override;
+	int LoopStatus() const override;
 
 private:
 	void InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSize);
