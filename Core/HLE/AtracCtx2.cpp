@@ -27,6 +27,11 @@
 // cmd1> C:\dev\ppsspp\pspautotests\tests\audio\atrac>copy /Y ..\..\..\__testoutput.txt stream.expected
 // Then run the test, see above.
 
+// Needs to support negative numbers, and to handle non-powers-of-two.
+static int RoundDownToMultiple(int x, int n) {
+	return (x % n == 0) ? x : x - (x % n) - (n * (x < 0));
+}
+
 void Atrac2::DoState(PointerWrap &p) {
 	_assert_msg_(false, "Savestates not yet support with new Atrac implementation.\n\nTurn it off in Developer settings.\n\n");
 }
@@ -121,6 +126,8 @@ u32 Atrac2::AddStreamDataSas(u32 bufPtr, u32 bytesToAdd) {
 }
 
 u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrittenSecondBuf) {
+	return 0;
+
 	// This was mostly copied straight from the old impl.
 
 	// Reuse the same calculation as before.
@@ -235,7 +242,7 @@ void Atrac2::GetResetBufferInfo(AtracResetBufferInfo *bufferInfo, int sample) {
 		int sampleFileOffset = track_.FileOffsetBySample(sample - track_.firstSampleOffset - track_.SamplesPerFrame());
 
 		// Update the writable bytes.  When streaming, this is just the number of bytes until the end.
-		const u32 bufSizeAligned = (info.bufferByte / track_.bytesPerFrame) * track_.bytesPerFrame;
+		const u32 bufSizeAligned = RoundDownToMultiple(info.bufferByte, track_.bytesPerFrame);
 		const int needsMoreFrames = track_.FirstOffsetExtra();  // ?
 
 		bufferInfo->first.writePosPtr = info.buffer;
@@ -300,10 +307,6 @@ int Atrac2::AddStreamData(u32 bytesToAdd) {
 		info.streamDataByte += bytesToAdd;
 	}
 	return 0;
-}
-
-int RoundDownToMultiple(int x, int n) {
-	return (x % n == 0) ? x : x - (x % n) - (n * (x < 0));
 }
 
 void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOffset) {
@@ -382,9 +385,10 @@ void Atrac2::GetStreamDataInfo(u32 *writePtr, u32 *bytesToRead, u32 *readFileOff
 			*writePtr = info.buffer + secondPart;
 			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
 		} else {
-			// We always start aligned at the start of the buffer. So, when computing the space left,
-			// we just shrink the buffer so it's an even number of frames, then compute the free space.
-			const int spaceLeft = RoundDownToMultiple(info.bufferByte, info.sampleSize) - writePos;
+			// In case the buffer is only partially filled at the start, we can be off packet alignment here!
+			// But otherwise, we normally are actually on alignment.
+			int size = info.streamOff + RoundDownToMultiple(info.bufferByte - info.streamOff, info.sampleSize);
+			const int spaceLeft = size - writePos;
 
 			*writePtr = info.buffer + writePos;
 			*bytesToRead = std::min(spaceLeft, bytesLeftInFile);
@@ -576,16 +580,23 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 		discardedSamples_ -= outSamples;
 	}
 
-	// We need to handle wrapping the overshot partial packet at the end. Let's start by computing it.
+	// We need to handle wrapping the overshot partial packet at the end.
 	if (AtracStatusIsStreaming(info.state)) {
-		// curOff also works (instead of streamOff) of course since it's also packet aligned, unlike the buffer size.
-		const int cutLen = (info.bufferByte - info.streamOff) % info.sampleSize;
-		const int cutRest = info.sampleSize - cutLen;
-
-		// Then, let's copy it.
-		if (cutLen > 0) {
+		// This logic is similar to GetStreamDataInfo.
+		const int lastPacketStart = info.bufferByte - info.sampleSize;  // Last possible place in the buffer to put the next packet
+		const int writePos = info.streamOff + info.streamDataByte;
+		if (writePos > lastPacketStart) {
+			// curOff also works (instead of streamOff) of course since it's also packet aligned, unlike the buffer size.
+			const int cutLen = (info.bufferByte - info.streamOff) % info.sampleSize;
+			const int cutRest = info.sampleSize - cutLen;
+			_dbg_assert_(cutLen > 0);
+			// Then, let's copy it.
 			INFO_LOG(Log::ME, "Streaming: Packets didn't fit evenly. Last packet got split into %d/%d (sum=%d). Copying to start of buffer.", cutLen, cutRest, cutLen, cutRest, info.sampleSize);
 			Memory::Memcpy(info.buffer, info.buffer + info.bufferByte - cutLen, cutLen);
+		} else {
+			INFO_LOG(Log::ME, "Streaming: Packets fit into the buffer fully. %08x < %08x", readSize, bufferSize);
+			// In this case, seems we need to zero some bytes. In testing, this seems to be 336.
+			Memory::Memset(info.buffer, 0, 128);
 		}
 	}
 	return successCode;
