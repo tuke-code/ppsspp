@@ -945,13 +945,14 @@ void DrawAudioDecodersView(ImConfig &cfg, ImControl &control) {
 	}
 
 	if (ImGui::CollapsingHeader("sceAtrac", ImGuiTreeNodeFlags_DefaultOpen)) {
-		if (ImGui::BeginTable("atracs", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersH)) {
+		if (ImGui::BeginTable("atracs", 7, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersH)) {
 			ImGui::TableSetupColumn("Index", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("OutChans", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("CurrentSample", ImGuiTableColumnFlags_WidthFixed);
 			ImGui::TableSetupColumn("RemainingFrames", ImGuiTableColumnFlags_WidthFixed);
+			ImGui::TableSetupColumn("Impl", ImGuiTableColumnFlags_WidthFixed);
 
 			ImGui::TableHeadersRow();
 
@@ -989,6 +990,8 @@ void DrawAudioDecodersView(ImConfig &cfg, ImControl &control) {
 				ImGui::Text("%d", ctx->CurrentSample());
 				ImGui::TableNextColumn();
 				ImGui::Text("%d", ctx->RemainingFrames());
+				ImGui::TableNextColumn();
+				ImGui::TextUnformatted(ctx->IsNewAtracImpl() ? "NewImpl" : "Legacy");
 			}
 
 			ImGui::EndTable();
@@ -1003,9 +1006,35 @@ void DrawAudioDecodersView(ImConfig &cfg, ImControl &control) {
 			if (ctx && ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen)) {
 				ImGui::ProgressBar((float)ctx->CurrentSample() / (float)ctx->GetTrack().endSample, ImVec2(200.0f, 0.0f));
 				ImGui::Text("Status: %s", AtracStatusToString(ctx->BufferState()));
-				ImGui::Text("cur/end sample: %d/%d", ctx->CurrentSample(), ctx->GetTrack().endSample);
-				ImGui::Text("ctx addr: "); ImGui::SameLine(); ImClickableValue("addr", ctx->Decoder()->GetCtxPtr(), control, ImCmd::SHOW_IN_MEMORY_VIEWER);
-				ImGui::Text("loop: %d", ctx->LoopNum());
+				ImGui::Text("first/cur/end sample: %d/%d/%d", ctx->GetTrack().FirstSampleOffsetFull(), ctx->CurrentSample(), ctx->GetTrack().endSample);
+				if (ctx->context_.IsValid()) {
+					ImGui::Text("ctx addr: ");
+					ImGui::SameLine();
+					ImClickableValue("ctx", ctx->context_.ptr, control, ImCmd::SHOW_IN_MEMORY_VIEWER);
+				}
+				if (ctx->context_.IsValid() && ctx->IsNewAtracImpl()) {
+					const auto &info = ctx->context_->info;
+					ImGui::Text("Buffer: (size: %d / %08x) Frame: %d", info.bufferByte, info.bufferByte, info.sampleSize);
+					ImGui::SameLine();
+					ImClickableValue("buffer", info.buffer, control, ImCmd::SHOW_IN_MEMORY_VIEWER);
+					if (info.secondBuffer || info.secondBufferByte) {
+						ImGui::Text("Second: (size: %d / %08x)", info.secondBufferByte, info.secondBufferByte);
+						ImGui::SameLine();
+						ImClickableValue("second", info.secondBuffer, control, ImCmd::SHOW_IN_MEMORY_VIEWER);
+					}
+					ImGui::Text("Data: %d/%d", info.dataOff, info.dataEnd);
+					if (info.state != ATRAC_STATUS_STREAMED_WITHOUT_LOOP) {
+						ImGui::Text("LoopNum: %d (%d-%d)", info.loopNum, info.loopStart, info.loopEnd);
+					}
+					ImGui::Text("DecodePos: %d EndSample: %d", info.decodePos, info.dataEnd);
+					if (AtracStatusIsStreaming(info.state)) {
+						ImGui::Text("Stream: offset %d, streamDataBytes: %d", info.streamOff, info.streamDataByte);
+					}
+					// Display unknown vars.
+					ImGui::Text("numFrame: %d unk22: %d unk52: %d", info.numFrame, info.unk22, info.unk52);
+				} else {
+					ImGui::Text("loop: %d", ctx->LoopNum());
+				}
 			}
 		}
 	}

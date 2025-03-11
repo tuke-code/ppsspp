@@ -244,6 +244,8 @@ public:
 	virtual u32 GetNextSamples() = 0;
 	virtual void InitLowLevel(u32 paramsAddr, bool jointStereo, int atracID) = 0;
 
+	virtual bool IsNewAtracImpl() const { return false; }
+
 protected:
 	Track track_{};
 	u16 outputChannels_ = 2;

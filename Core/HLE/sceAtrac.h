@@ -62,8 +62,8 @@ struct SceAtracIdInfo {
     u32_le endSample; // 4
     u32_le loopStart; // 8
     u32_le loopEnd; // 12
-    s32_le samplesPerChan; // 16   // This rather seems to be the number of skipped samples at the start. (plus one frame?)
-    char numFrame; // 20  // This seems to just stay at zero.
+    s32_le samplesPerChan; // 16   // This is misnamed, rather seems to be the number of skipped samples at the start.
+    char numFrame; // 20  // This seems to just stay at zero, not sure what it's for.
     AtracStatus_le state; // 21
     char unk22;
     char numChan; // 23
