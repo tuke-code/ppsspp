@@ -53,10 +53,9 @@ public:
 	int LoopStatus() const override;
 
 private:
-	void InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSize);
+	void InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSize, int sampleOffset);
 
 	void AnalyzeReset();
-	void SeekToSample(int sample);
 
 	// Just the current decoded frame, in order to be able to cut off the first part of it
 	// to write the initial partial frame.
