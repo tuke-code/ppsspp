@@ -180,7 +180,6 @@ u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWri
 	_dbg_assert_(track_.codecType == PSP_MODE_AT_3 || track_.codecType == PSP_MODE_AT_3_PLUS);
 	SeekToSample(sample);
 
-	WriteContextToPSPMem();
 	return hleNoLog(0);
 }
 

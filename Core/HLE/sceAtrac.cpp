@@ -308,6 +308,10 @@ static u32 sceAtracGetBufferInfoForResetting(int atracID, int sample, u32 buffer
 		return hleLogWarning(Log::ME, SCE_ERROR_ATRAC_BAD_SAMPLE, "invalid sample position");
 	} else {
 		atrac->GetResetBufferInfo(bufferInfo, sample);
+		DEBUG_LOG(Log::ME, "GetBufferInfoForResetting: First: %08x %08x %08x %08x", bufferInfo->first.writePosPtr, bufferInfo->first.writableBytes, bufferInfo->first.minWriteBytes, bufferInfo->first.filePos);
+		if (bufferInfo->second.filePos) {
+			DEBUG_LOG(Log::ME, "GetBufferInfoForResetting: Second: %08x %08x %08x %08x", bufferInfo->second.writePosPtr, bufferInfo->second.writableBytes, bufferInfo->second.minWriteBytes, bufferInfo->second.filePos);
+		}
 		return hleLogInfo(Log::ME, 0);
 	}
 }
