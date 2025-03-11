@@ -126,14 +126,11 @@ u32 Atrac2::AddStreamDataSas(u32 bufPtr, u32 bytesToAdd) {
 }
 
 u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWrittenSecondBuf) {
-	return 0;
-
-	// This was mostly copied straight from the old impl.
-
-	// Reuse the same calculation as before.
+	// Reuse the same calculation as before, for input validation.
 	AtracResetBufferInfo bufferInfo;
 	GetResetBufferInfo(&bufferInfo, sample);
 
+	// Input validation.
 	if ((u32)bytesWrittenFirstBuf < bufferInfo.first.minWriteBytes || (u32)bytesWrittenFirstBuf > bufferInfo.first.writableBytes) {
 		return hleLogError(Log::ME, SCE_ERROR_ATRAC_BAD_FIRST_RESET_SIZE, "first byte count not in valid range");
 	}
@@ -184,8 +181,8 @@ u32 Atrac2::ResetPlayPosition(int sample, int bytesWrittenFirstBuf, int bytesWri
 		*/
 	}
 
-	_dbg_assert_(track_.codecType == PSP_MODE_AT_3 || track_.codecType == PSP_MODE_AT_3_PLUS);
-	SeekToSample(sample);
+	// _dbg_assert_(track_.codecType == PSP_MODE_AT_3 || track_.codecType == PSP_MODE_AT_3_PLUS);
+	// SeekToSample(sample);
 
 	return hleNoLog(0);
 }
@@ -507,31 +504,13 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 		WARN_LOG(Log::ME, "Atrac::SetData: outputChannels %d doesn't match track_.channels %d", outputChannels, track_.channels);
 	}
 
-	context_->codec.inBuf = bufferAddr;
+	CreateDecoder();
 
-	// Copied from the old implementation, let's see where they are useful.
-	int firstExtra = track_.FirstOffsetExtra();
-
-	// Copy parameters into struct.
-	info.buffer = bufferAddr;
-	info.bufferByte = bufferSize;
-	info.samplesPerChan = track_.FirstSampleOffsetFull();
-	info.endSample = track_.endSample + info.samplesPerChan;
-	if (track_.loopStartSample != 0xFFFFFFFF) {
-		info.loopStart = track_.loopStartSample;
-		info.loopEnd = track_.loopEndSample;
+	if (!decodeTemp_) {
+		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
 	}
-	info.codec = track_.codecType;
-	info.sampleSize = track_.bytesPerFrame;
-	info.numChan = track_.channels;
-	info.numFrame = 0;
-	info.dataOff = track_.dataByteOffset;
-	info.curOff = track_.dataByteOffset;  // Note: This and streamOff get incremented by bytesPerFrame before the return from this function by skipping frames.
-	info.streamOff = track_.dataByteOffset;
-	info.streamDataByte = readSize - track_.dataByteOffset;
-	info.dataEnd = track_.fileSize;
-	info.decodePos = track_.FirstSampleOffsetFull();
-	discardedSamples_ = track_.FirstSampleOffsetFull();
+
+	context_->codec.inBuf = bufferAddr;
 
 	if (readSize > track_.fileSize) {
 		WARN_LOG(Log::ME, "readSize %d > track_.fileSize", readSize, track_.fileSize);
@@ -557,11 +536,29 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 		}
 	}
 
-	CreateDecoder();
+	// Copied from the old implementation, let's see where they are useful.
+	int firstExtra = track_.FirstOffsetExtra();
 
-	if (!decodeTemp_) {
-		decodeTemp_ = new int16_t[track_.SamplesPerFrame() * track_.channels];
+	// Copy parameters into struct.
+	info.buffer = bufferAddr;
+	info.bufferByte = bufferSize;
+	info.samplesPerChan = track_.FirstSampleOffsetFull();
+	info.endSample = track_.endSample + info.samplesPerChan;
+	if (track_.loopStartSample != 0xFFFFFFFF) {
+		info.loopStart = track_.loopStartSample;
+		info.loopEnd = track_.loopEndSample;
 	}
+	info.codec = track_.codecType;
+	info.sampleSize = track_.bytesPerFrame;
+	info.numChan = track_.channels;
+	info.numFrame = 0;
+	info.dataOff = track_.dataByteOffset;
+	info.curOff = track_.dataByteOffset;  // Note: This and streamOff get incremented by bytesPerFrame before the return from this function by skipping frames.
+	info.streamOff = track_.dataByteOffset;
+	info.streamDataByte = readSize - track_.dataByteOffset;
+	info.dataEnd = track_.fileSize;
+	info.decodePos = track_.FirstSampleOffsetFull();
+	discardedSamples_ = track_.FirstSampleOffsetFull();
 
 	// TODO: Decode/discard any first dummy frames to the temp buffer. This initializes the decoder.
 	// It really does seem to be what's happening here, as evidenced by inBuf in the codec struct - it gets initialized.
