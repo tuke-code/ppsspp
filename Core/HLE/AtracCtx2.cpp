@@ -539,6 +539,12 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 	// Copied from the old implementation, let's see where they are useful.
 	int firstExtra = track_.FirstOffsetExtra();
 
+	InitContext(0, bufferAddr, readSize, bufferSize);
+	return successCode;
+}
+
+void Atrac2::InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSize) {
+	SceAtracIdInfo &info = context_->info;
 	// Copy parameters into struct.
 	info.buffer = bufferAddr;
 	info.bufferByte = bufferSize;
@@ -596,7 +602,6 @@ int Atrac2::SetData(u32 bufferAddr, u32 readSize, u32 bufferSize, int outputChan
 			Memory::Memset(info.buffer, 0, 128);
 		}
 	}
-	return successCode;
 }
 
 u32 Atrac2::GetInternalCodecError() const {

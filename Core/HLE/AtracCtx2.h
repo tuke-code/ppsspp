@@ -51,7 +51,7 @@ public:
 	u32 GetInternalCodecError() const override;
 
 private:
-	void SkipFramesAfterReset();
+	void InitContext(int offset, u32 bufferAddr, u32 readSize, u32 bufferSize);
 
 	void AnalyzeReset();
 	void SeekToSample(int sample);
