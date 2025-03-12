@@ -224,7 +224,7 @@ public:
 
 	virtual int CurrentSample() const = 0;
 	virtual int RemainingFrames() const = 0;
-	virtual u32 SecondBufferSize() const = 0;
+	virtual bool HasSecondBuffer() const = 0;
 
 	virtual int Analyze(u32 addr, u32 size) = 0;
 	virtual int AnalyzeAA3(u32 addr, u32 size, u32 filesize) = 0;
@@ -287,8 +287,8 @@ public:
 		return currentSample_;
 	}
 	int RemainingFrames() const override;
-	u32 SecondBufferSize() const override {
-		return second_.size;
+	bool HasSecondBuffer() const override {
+		return second_.size != 0;
 	}
 	int LoopStatus() const override {
 		// This doesn't match tests.

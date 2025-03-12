@@ -39,7 +39,7 @@ public:
 	void GetResetBufferInfo(AtracResetBufferInfo *bufferInfo, int sample) override;
 	int SetData(u32 buffer, u32 readSize, u32 bufferSize, int outputChannels, int successCode) override;
 	u32 SetSecondBuffer(u32 secondBuffer, u32 secondBufferSize) override;
-	u32 SecondBufferSize() const override;
+	bool HasSecondBuffer() const override;
 
 	u32 DecodeData(u8 *outbuf, u32 outbufPtr, u32 *SamplesNum, u32 *finish, int *remains) override;
 	u32 GetNextSamples() override;

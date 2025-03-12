@@ -300,9 +300,9 @@ static u32 sceAtracGetBufferInfoForResetting(int atracID, int sample, u32 buffer
 	}
 
 	if (!bufferInfo.IsValid()) {
-		return hleReportError(Log::ME, SCE_KERNEL_ERROR_ILLEGAL_ADDR, "invalid buffer, should crash");
-	} else if (atrac->BufferState() == ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER && atrac->SecondBufferSize() == 0) {
-		return hleReportError(Log::ME, SCE_ERROR_ATRAC_SECOND_BUFFER_NEEDED, "no second buffer");
+		return hleReportError(Log::ME, SCE_KERNEL_ERROR_ILLEGAL_ADDR);
+	} else if (atrac->BufferState() == ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER && !atrac->HasSecondBuffer()) {
+		return hleReportError(Log::ME, SCE_ERROR_ATRAC_SECOND_BUFFER_NEEDED);
 	} else if ((u32)sample + atrac->GetTrack().firstSampleOffset > (u32)atrac->GetTrack().endSample + atrac->GetTrack().firstSampleOffset) {
 		// NOTE: Above we have to add firstSampleOffset to both sides - we seem to rely on wraparound.
 		return hleLogWarning(Log::ME, SCE_ERROR_ATRAC_BAD_SAMPLE, "invalid sample position");
@@ -557,8 +557,8 @@ static u32 sceAtracResetPlayPosition(int atracID, int sample, int bytesWrittenFi
 		return hleLogError(Log::ME, err);
 	}
 
-	if (atrac->BufferState() == ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER && atrac->SecondBufferSize() == 0) {
-		return hleReportError(Log::ME, SCE_ERROR_ATRAC_SECOND_BUFFER_NEEDED, "no second buffer");
+	if (atrac->BufferState() == ATRAC_STATUS_STREAMED_LOOP_WITH_TRAILER && !atrac->HasSecondBuffer()) {
+		return hleLogError(Log::ME, SCE_ERROR_ATRAC_SECOND_BUFFER_NEEDED);
 	} else if ((u32)sample + atrac->GetTrack().firstSampleOffset > (u32)atrac->GetTrack().endSample + atrac->GetTrack().firstSampleOffset) {
 		// NOTE: Above we have to add firstSampleOffset to both sides - we seem to rely on wraparound.
 		return hleLogWarning(Log::ME, SCE_ERROR_ATRAC_BAD_SAMPLE, "invalid sample position");
